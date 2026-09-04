@@ -21,7 +21,7 @@ cobertura temporal, coherencia entre fuentes, anomalías lógicas.
 **Terminas cuando:** puedes responder a estas tres preguntas sin dudar.
 - ¿Cuál de las dos columnas de `customers` identifica a la persona, y cómo lo sabes?
 
-RTA: customer_unique_id es la columna que identifica al cliente, la columna customers_id identifica a  la orden con el cliente en relación 1:1, es decir por cada orden habra una customer_id independientemente si el clinte es el mismo. De los 99441 registros, 96096 son personas reales. Con el campo customer_unique_id se idenfico que se repetian varios registros con la misma información de cliente, sin embargo en la tabla de ordenes no hay tasa de recompra.
+RTA: customer_unique_id es la columna que identifica al cliente, la columna customer_id vincula un cliente con un pedido concreto en relación 1:1, es decir por cada orden habra una customer_id independientemente si el clinte es el mismo. De los 99441 registros, 96096 son personas reales. Con el campo customer_unique_id se idenfico que se repetian varios registros con la misma información de cliente, sin embargo  la recompra es indetectable, porque cada persona aparece con exactamente 1 pedido por construcción.
 
 - ¿Qué periodo del dataset es analizable y por qué los extremos no lo son?
 
