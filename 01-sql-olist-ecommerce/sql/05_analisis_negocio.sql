@@ -1,0 +1,217 @@
+-- =============================================================================
+-- 05_analisis_negocio.sql | RETO 3 — Seis preguntas de negocio
+--
+-- Cada pregunta introduce una técnica nueva. El orden es deliberado: van de
+-- menor a mayor dificultad y las últimas se apoyan en las primeras.
+--
+-- Regla del ejercicio: escribe la consulta, MIRA el resultado, y anota en el
+-- README qué has aprendido del negocio. Una consulta sin interpretación no
+-- vale nada en un portafolio.
+--
+-- Ejecutar:
+--   docker exec -i olist_pg psql -U analyst -d olist -f /sql/05_analisis_negocio.sql
+-- =============================================================================
+
+
+-- #############################################################################
+-- P1. ¿Cómo evoluciona el negocio mes a mes?
+--     Técnica: LAG() y media móvil
+-- #############################################################################
+--
+-- Produce una fila por mes con: pedidos, ingreso, ticket medio,
+-- variación % respecto al mes anterior, y media móvil de 3 meses.
+--
+-- PISTA (variación intermensual):
+--     lag(sum(ingreso)) OVER (ORDER BY mes_compra)
+--   Sí, puedes usar una window function SOBRE un agregado. La window se evalúa
+--   después del GROUP BY, así que sum(ingreso) ya está calculado.
+--
+-- PISTA (media móvil):
+--     avg(sum(ingreso)) OVER (ORDER BY mes_compra ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+--   El marco ROWS BETWEEN define la ventana deslizante. Sin él, el default es
+--   acumulado desde el inicio, que no es lo que quieres.
+--
+-- QUÉ MIRAR AL INTERPRETAR:
+--   - ¿El crecimiento se mantiene o se aplana en algún punto?
+--   - Hay un mes con un pico enorme y el siguiente con una caída fuerte.
+--     ¿Qué fecha comercial explica ambos? (pista: es noviembre en Brasil)
+--   - Compara la evolución del ingreso con la del TICKET MEDIO. Si el ingreso
+--     crece pero el ticket no se mueve, ¿de dónde viene el crecimiento?
+--     Esa observación vale más que la propia serie.
+-- -----------------------------------------------------------------------------
+
+-- TODO
+
+
+-- #############################################################################
+-- P2. ¿Cuántas categorías concentran el 80% del ingreso?
+--     Técnica: acumulado con SUM() OVER (Pareto)
+-- #############################################################################
+--
+-- Ranking de categorías por ingreso, con su % individual y su % ACUMULADO.
+-- Después, calcula cuántas categorías hacen falta para llegar al 80%.
+--
+-- PISTA (el acumulado es la clave del ejercicio):
+--     sum(ingreso) OVER (ORDER BY ingreso DESC)   -- acumulado
+--     sum(ingreso) OVER ()                        -- total (sin ORDER BY)
+--   La diferencia entre ambos es solo el ORDER BY: con él la ventana es
+--   "desde el principio hasta la fila actual"; sin él, es toda la tabla.
+--   Entender eso es entender las window functions.
+--
+-- QUÉ MIRAR: la relación entre categorías totales y categorías hasta el 80%.
+--   Si el catálogo tiene mucha cola larga improductiva, eso es una conclusión
+--   de negocio (¿merece la pena mantenerla?), no un dato curioso.
+-- -----------------------------------------------------------------------------
+
+-- TODO
+
+
+-- #############################################################################
+-- P3. Segmentación RFM de clientes
+--     Técnica: NTILE() y CTEs encadenados
+-- #############################################################################
+--
+-- RFM = Recency (cuán reciente), Frequency (cuántas veces), Monetary (cuánto).
+-- Es la segmentación estándar de la industria y sale en toda entrevista.
+--
+-- Estructura sugerida (cuatro CTEs encadenados):
+--   1. metricas   -> por cliente: recencia en días, frecuencia, gasto total
+--   2. puntajes   -> convierte cada métrica en quintiles con ntile(5)
+--   3. segmentado -> asigna nombre de segmento con un CASE sobre los quintiles
+--   4. resumen    -> agrega por segmento: clientes, % clientes, ingreso, % ingreso
+--
+-- TRAMPA IMPORTANTE (la recencia):
+--   NO uses CURRENT_DATE. El dataset acaba en 2018; contra la fecha de hoy todos
+--   los clientes tendrían ~7 años de antigüedad y los quintiles serían ruido.
+--   La fecha de corte es max(fecha_compra) del propio dataset.
+--
+-- PISTA (ntile y el sentido del orden):
+--     ntile(5) OVER (ORDER BY recencia_dias DESC)  -- ojo: MENOS días = MEJOR,
+--                                                  -- por eso va DESC para que
+--                                                  -- el quintil 5 sean los buenos
+--     ntile(5) OVER (ORDER BY monetario)           -- aquí más = mejor, va ASC
+--   Equivocar el sentido invierte la segmentación entera y es el error nº1 aquí.
+--
+-- Segmentos sugeridos (ajústalos si quieres, es una decisión de analista):
+--   r>=4 y f>=4 y m>=4  -> Campeones
+--   r>=3 y m>=4         -> Leales de alto valor
+--   r>=4 y f<=2         -> Nuevos / prometedores
+--   r<=2 y m>=4         -> En riesgo (valiosos)
+--   r<=2                -> Hibernando
+--   resto               -> Ocasionales
+--
+-- QUÉ MIRAR: compara la columna "% de clientes" con "% de ingreso" de cada
+--   segmento. Busca el segmento donde esa desproporción sea más incómoda: ese
+--   es tu titular y tu recomendación de campaña.
+-- -----------------------------------------------------------------------------
+
+-- TODO
+
+
+-- #############################################################################
+-- P4. Retención: ¿vuelven los clientes?
+--     Técnica: cohortes con aritmética de fechas
+-- #############################################################################
+--
+-- Primero lo simple: tasa de recompra global (% de clientes con más de 1 pedido)
+-- y pedidos medios por cliente.
+--
+-- Después, el análisis de cohortes:
+--   1. CTE `primera`:   por cliente, el mes de su PRIMERA compra (la cohorte)
+--   2. CTE `actividad`: por cliente y mes activo, cuántos meses han pasado desde
+--                       su cohorte -> llámalo mes_n (0 = mes de alta)
+--   3. Pivota: una fila por cohorte, columnas m1_pct, m2_pct, m3_pct...
+--
+-- PISTA (meses transcurridos entre dos fechas):
+--     EXTRACT(YEAR FROM age(mes_actual, cohorte)) * 12
+--   + EXTRACT(MONTH FROM age(mes_actual, cohorte))
+--   Restar fechas directamente te da días, no meses. age() te da un intervalo.
+--
+-- PISTA (pivotar sin PIVOT): agregados condicionales.
+--     count(*) FILTER (WHERE mes_n = 1) / count(*) FILTER (WHERE mes_n = 0)
+--   Cada columna del pivote es un FILTER distinto. Multiplica por 100.0.
+--
+-- CUIDADO (censura a la derecha): las cohortes de los últimos meses no han
+--   tenido tiempo de volver. Sus ceros son artefacto, no comportamiento. Puedes
+--   filtrarlas o dejarlas y explicarlo — pero MENCIÓNALO en las limitaciones.
+--   Un analista que no ve esto es un analista que no ha hecho cohortes.
+--
+-- QUÉ MIRAR: la tasa de recompra de este marketplace es sorprendentemente baja.
+--   No la trates como un dato aislado: piensa qué implica sobre el MODELO DE
+--   NEGOCIO. Si casi nadie repite, ¿de qué depende cada real de ingreso? Esa
+--   respuesta te conecta P4 con P5 y es lo que convierte seis consultas sueltas
+--   en un análisis con hilo argumental.
+-- -----------------------------------------------------------------------------
+
+-- TODO
+
+
+-- #############################################################################
+-- P5. ¿Cuánto cuesta entregar tarde?   [aquí está el hallazgo principal]
+--     Técnica: bucketing con CASE + agregados condicionales
+-- #############################################################################
+--
+-- Cruza el cumplimiento de la promesa de entrega contra la reseña del cliente.
+--
+-- Agrupa dias_vs_promesa en tramos con un CASE:
+--     <= -10  muy anticipado    |    1..7   tarde
+--     < 0     anticipado        |    > 7    muy tarde
+--     = 0     en la fecha
+--
+-- Para cada tramo calcula: pedidos, % del total, score medio,
+--   % de reseñas de 1-2 estrellas, % de reseñas de 5 estrellas.
+--
+-- PISTA: prefija los tramos con 'a. ', 'b. ', 'c. '... para que ORDER BY 1 los
+--   ordene lógicamente y no alfabéticamente. Truco pequeño, gran diferencia al
+--   leer la tabla.
+--
+-- PISTA: JOIN entre analytics.fact_pedidos y analytics.dim_resenas por order_id.
+--
+-- QUÉ MIRAR (esto es lo importante del proyecto entero):
+--   1. ¿La caída del score es gradual o hay un salto brusco en algún tramo?
+--      El titular es distinto según la respuesta.
+--   2. Compara "muy anticipado" con "anticipado". ¿Adelantarse MUCHO mejora la
+--      satisfacción respecto a adelantarse poco? La respuesta determina si la
+--      recomendación es "entregar antes" o "dejar de entregar tarde", que
+--      cuestan cosas muy distintas.
+--
+-- SEGUNDA CONSULTA: tiempo de entrega por estado (customer_state).
+--   Incluye media, percentil 90 y % de pedidos tardíos.
+--   PISTA: percentile_cont(0.9) WITHIN GROUP (ORDER BY dias_entrega)
+--   Filtra con HAVING count(*) >= 500 para no sacar conclusiones de 12 pedidos.
+-- -----------------------------------------------------------------------------
+
+-- TODO
+
+
+-- #############################################################################
+-- P6. Concentración de vendedores
+--     Técnica: percentiles con ROW_NUMBER + acumulado
+-- #############################################################################
+--
+-- ¿Qué % del ingreso generan el top 1%, 5%, 10% y 20% de los vendedores?
+-- Es una pregunta de RIESGO: si pocos vendedores sostienen el negocio, su
+-- marcha es una amenaza existencial.
+--
+-- PISTA: ranking con row_number() OVER (ORDER BY ingreso DESC), total de
+--   vendedores con count(*) OVER (), y acumulado como en P2. Luego filtra
+--   por  pos <= total * 0.01  y toma el max(acumulado).
+--
+-- QUÉ MIRAR: traduce el porcentaje a número absoluto de vendedores. "El top 1%"
+--   suena abstracto; "31 vendedores" es una frase que un director entiende.
+-- -----------------------------------------------------------------------------
+
+-- TODO
+
+
+-- =============================================================================
+-- ENTREGABLE DEL RETO 3
+--
+-- Guarda la salida:
+--   docker exec -i olist_pg psql -U analyst -d olist -f /sql/05_analisis_negocio.sql \
+--     > resultados/05_analisis_negocio.txt
+--
+-- Y escribe en el README, por cada pregunta, un párrafo con el hallazgo. No
+-- describas la tabla ("la categoría X vendió Y"): di qué significa para el
+-- negocio y qué harías con esa información.
+-- =============================================================================

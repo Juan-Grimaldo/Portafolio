@@ -1,0 +1,20 @@
+# Datos: se descargan con data/descargar_datos.sh (~120 MB)
+*.csv
+!**/product_category_name_translation.csv
+
+# Postgres
+docker/pgdata/
+
+# Python
+__pycache__/
+.venv/
+venv/
+*.pyc
+.ipynb_checkpoints/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Soluciones: referencia local, no se publica
+_soluciones/
